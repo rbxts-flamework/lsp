@@ -1,4 +1,5 @@
 import type ts from "typescript";
+import { isStaticLocation } from "../util/functions/isStaticLocation";
 import { isInjectable } from "../util/functions/isInjectable";
 import { Provider } from "../util/provider";
 
@@ -28,8 +29,9 @@ export function getCompletionsAtPositionFactory(provider: Provider): ts.Language
 			if (
 				token !== undefined &&
 				ts.isIdentifier(token) &&
-				ts.isExpressionStatement(token.parent) &&
-				ts.findAncestor(token, ts.isClassDeclaration) !== undefined
+				ts.isInExpressionContext(token) &&
+				ts.findAncestor(token, ts.isClassDeclaration) !== undefined &&
+				!isStaticLocation(token)
 			) {
 				const entries = new Array<ts.CompletionEntry>();
 				orig.entries.forEach((entry) => {

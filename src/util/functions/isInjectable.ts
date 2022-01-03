@@ -41,7 +41,7 @@ function findSymbol(provider: Provider, token: ts.Node, name: string, data?: ts.
 
 	if (data && data.fileName) {
 		const file = provider.getSourceFile(data.fileName);
-		const fileSymbol = provider.typeChecker.getSymbolAtLocation(file);
+		const fileSymbol = provider.getSymbol(file);
 		if (fileSymbol) {
 			const exportSymbol = fileSymbol.exports?.get(ts.escapeLeadingUnderscores(data.exportName));
 			if (exportSymbol) {

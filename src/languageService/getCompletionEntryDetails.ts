@@ -1,8 +1,8 @@
 import type ts from "typescript";
+import { isStaticLocation } from "../util/functions/isStaticLocation";
 import { isInjectable } from "../util/functions/isInjectable";
 import { Provider } from "../util/provider";
-
-const NO_WHITESPACE = /\S/;
+import { expect } from "../util/functions/expect";
 
 export function getCompletionEntryDetailsFactory(provider: Provider): ts.LanguageService["getCompletionEntryDetails"] {
 	const { service, ts } = provider;
@@ -17,47 +17,32 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 		return ts.getLineOfLocalPosition(file, range.pos) !== ts.getLineOfLocalPosition(file, range.end);
 	}
 
-	function isEmptyLine(file: ts.SourceFile, pos: number, offset: number) {
-		const line = ts.getLineOfLocalPosition(file, pos) + offset;
-		const startOfLine = ts.getStartPositionOfLine(line, file);
-		const endOfLine = ts.getEndLinePosition(line, file);
-		return !NO_WHITESPACE.test(file.text.substring(startOfLine, endOfLine));
-	}
-
-	function createNewConstructorBody(
-		declaration: ts.ClassDeclaration,
-		ctor: ts.ConstructorDeclaration,
-		file: ts.SourceFile,
-	) {
+	function createNewConstructorBody(declaration: ts.ClassDeclaration, ctor: ts.ConstructorDeclaration) {
 		const ctorOrder = provider.config.constructorOrder;
 		const ctorNewLine = provider.config.constructorPadding;
 		const startNewLine = ctorNewLine === "before" || ctorNewLine === "both" ? "\n" : "";
 		const endNewLine = ctorNewLine === "after" || ctorNewLine === "both" ? "\n" : "";
-		const ctorBody = ts
-			.createPrinter()
-			.printNode(ts.EmitHint.Unspecified, ctor, file)
+		const ctorBody = provider
+			.print(ctor, declaration.getSourceFile())
 			.replace(/\n/g, "\n\t")
 			.replace(") { }", ") {}");
 
 		if (ctorOrder === "preFields" || ctorOrder === "preMethods") {
 			const preMethods = provider.config.constructorOrder === "preMethods";
+			const memberIndex = declaration.members.findIndex(
+				(v) =>
+					(preMethods ? ts.isMethodDeclaration(v) : ts.isPropertyDeclaration(v)) && !ts.hasStaticModifier(v),
+			);
+			const previousMember = declaration.members[memberIndex - 1];
+			const nextMember = declaration.members[memberIndex];
 
-			let maxIndex = declaration.members.length - 1;
-			for (const [i, v] of declaration.members.entries()) {
-				if (
-					(preMethods ? ts.isMethodDeclaration(v) : ts.isPropertyDeclaration(v)) &&
-					!ts.hasStaticModifier(v)
-				) {
-					maxIndex = i;
-					break;
-				}
+			if (previousMember) {
+				return {
+					start: previousMember ? previousMember.getEnd() : declaration.members.pos,
+					end: nextMember.getStart(),
+					body: `\n${startNewLine}\t${ctorBody}\n${endNewLine}\t`,
+				};
 			}
-
-			const start = declaration.members[maxIndex].getFullStart();
-			const startNewLineOptional = isEmptyLine(file, start, 0) || maxIndex === 0 ? "" : startNewLine;
-			const endNewLineOptional = isEmptyLine(file, start, 1) ? "" : endNewLine;
-
-			return { start, body: `\n${startNewLineOptional}\t${ctorBody}${endNewLineOptional}` };
 		}
 
 		// Fallback / Top
@@ -66,34 +51,227 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 
 	function printParameters(file: ts.SourceFile, node: ts.ConstructorDeclaration, old: ts.ConstructorDeclaration) {
 		const baseFlags = ts.ListFormat.Parameters & ~ts.ListFormat.Parenthesis;
-		const printer = ts.createPrinter();
 		if (isMultiLine(file, old.parameters)) {
-			return `\n\t\t${printer
+			return `\n\t\t${provider.printer
 				.printList(baseFlags | ts.ListFormat.MultiLine, node.parameters, file)
 				.trimEnd()
 				.replace(/\n/g, "\n\t\t")},`;
 		} else {
-			return printer.printList(baseFlags, node.parameters, file);
+			return provider.printer.printList(baseFlags, node.parameters, file);
 		}
 	}
 
-	function createChange(file: ts.SourceFile, entry: string, declaration: ts.ClassDeclaration): ts.CodeAction {
-		const changes = new Array<ts.FileTextChanges>();
+	function getImportChange(file: ts.SourceFile, importName: string, importPath: string): ts.TextChange | undefined {
+		for (const statement of file.statements) {
+			if (
+				ts.isImportDeclaration(statement) &&
+				statement.importClause &&
+				statement.importClause.namedBindings &&
+				ts.isNamedImports(statement.importClause.namedBindings) &&
+				(statement.moduleSpecifier as ts.StringLiteral).text === importPath
+			) {
+				const clause = statement.importClause;
+				const bindings = statement.importClause.namedBindings;
+				for (const element of bindings.elements) {
+					if (element.name.text === importName) {
+						return;
+					}
+				}
 
-		let ctor = declaration.members.find(ts.isConstructorDeclaration);
-		if (!ctor) {
-			ctor = ts.factory.createConstructorDeclaration(undefined, undefined, [], ts.factory.createBlock([], false));
+				const newImport = ts.factory.updateImportDeclaration(
+					statement,
+					statement.decorators,
+					statement.modifiers,
+					ts.factory.updateImportClause(
+						clause,
+						false,
+						clause.name,
+						ts.factory.updateNamedImports(bindings, [
+							...bindings.elements,
+							ts.factory.createImportSpecifier(false, undefined, ts.factory.createIdentifier(importName)),
+						]),
+					),
+					statement.moduleSpecifier,
+					statement.assertClause,
+				);
+				return {
+					span: ts.createTextSpanFromNode(statement, file),
+					newText: provider.print(newImport, file),
+				};
+			}
 		}
 
-		if (
-			!ctor.parameters.some(
-				(v) => v.type && ts.isTypeReferenceNode(v.type) && v.type.typeName.getText() === entry,
-			)
-		) {
-			const modifiers = new Array<ts.Modifier>();
-			const modifierConfig = (provider.config.accessibility ?? "private-readonly").split("-");
-			for (const token of modifierConfig) {
-				modifiers.push(tokens[token as keyof typeof tokens]);
+		let newImportPosition = 0;
+		for (const statement of file.statements) {
+			if (ts.isImportDeclaration(statement)) {
+				newImportPosition = statement.getEnd();
+			} else {
+				break;
+			}
+		}
+
+		const newImport = ts.factory.createImportDeclaration(
+			undefined,
+			undefined,
+			ts.factory.createImportClause(
+				false,
+				undefined,
+				ts.factory.createNamedImports([
+					ts.factory.createImportSpecifier(false, undefined, ts.factory.createIdentifier(importName)),
+				]),
+			),
+			ts.factory.createStringLiteral(importPath),
+		);
+		return {
+			span: ts.createTextSpan(newImportPosition, 0),
+			newText: "\n" + provider.print(newImport, file),
+		};
+	}
+
+	function isFlameworkDecorated(declaration: ts.ClassDeclaration) {
+		if (declaration.decorators) {
+			for (const decorator of declaration.decorators) {
+				const type = provider.typeChecker.getTypeAtLocation(decorator.expression);
+				if (type && type.getProperty("_flamework_Decorator") !== undefined) {
+					return true;
+				}
+
+				// Pre-modding release does not have _flamework_Decorator, temporary workaround.
+				if (ts.isCallExpression(decorator.expression)) {
+					const symbol = provider.getSymbol(decorator.expression.expression);
+					if (symbol?.name === "Service" || symbol?.name === "Controller" || symbol?.name === "Component") {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	function getParentClass(declaration: ts.ClassDeclaration) {
+		const extendsClause = ts.getHeritageClause(declaration.heritageClauses, ts.SyntaxKind.ExtendsKeyword);
+		if (!extendsClause) return;
+
+		const node = extendsClause.types[0];
+		const symbol = provider.getSymbol(node.expression);
+		if (!symbol) return;
+		if (!symbol.valueDeclaration) return;
+		if (!ts.isClassDeclaration(symbol.valueDeclaration)) return;
+
+		return symbol.valueDeclaration;
+	}
+
+	function getParentParameters(declaration: ts.ClassDeclaration) {
+		let current = getParentClass(declaration);
+		while (current) {
+			const constructor = current.members.find(ts.isConstructorDeclaration);
+			if (constructor) {
+				return constructor.parameters;
+			}
+			current = getParentClass(current);
+		}
+	}
+
+	function getBestFix(specifiers: readonly string[]) {
+		return specifiers.reduce((best, fix) =>
+			ts.compareNumberOfDirectorySeparators(best, fix) === ts.Comparison.LessThan ? fix : best,
+		);
+	}
+
+	function convertParameter(
+		file: ts.SourceFile,
+		parameter: ts.ParameterDeclaration,
+		host: ts.ModuleSpecifierResolutionHost,
+		userPreferences: ts.UserPreferences,
+	) {
+		if (ts.isIdentifier(parameter.name) && parameter.type) {
+			const symbol = provider.getSymbol(parameter.type);
+			const symbolDeclaration = symbol?.valueDeclaration;
+			if (symbolDeclaration) {
+				const moduleSymbol = expect(provider.getSymbol(symbolDeclaration.getSourceFile()));
+				const specifiers = ts.moduleSpecifiers.getModuleSpecifiers(
+					moduleSymbol,
+					provider.typeChecker,
+					provider.constants.compilerOptions,
+					file,
+					host,
+					userPreferences,
+				);
+				return {
+					change: getImportChange(file, symbol.name, getBestFix(specifiers)),
+					name: parameter.name,
+					parameter: ts.factory.updateParameterDeclaration(
+						parameter,
+						undefined,
+						undefined,
+						undefined,
+						parameter.name,
+						parameter.questionToken,
+						parameter.type,
+						undefined,
+					),
+				};
+			}
+		}
+	}
+
+	function createChange(
+		file: ts.SourceFile,
+		entry: string,
+		declaration: ts.ClassDeclaration,
+		preferences: ts.UserPreferences,
+	): ts.CodeAction {
+		const changes = new Array<ts.FileTextChanges>();
+		const modifiers = new Array<ts.Modifier>();
+		const modifierConfig = (provider.config.accessibility ?? "private-readonly").split("-");
+		for (const token of modifierConfig) {
+			modifiers.push(tokens[token as keyof typeof tokens]);
+		}
+
+		if (isFlameworkDecorated(declaration) && !provider.config.alwaysUsePropertyDI) {
+			// This class is using a Flamework decorator, so it probably has constructor DI.
+			let ctor = declaration.members.find(ts.isConstructorDeclaration);
+			if (!ctor) {
+				const parentParameters = getParentParameters(declaration);
+				const statements = new Array<ts.Statement>();
+				const parameters = new Array<ts.ParameterDeclaration>();
+				const superIdentifiers = new Array<ts.Identifier>();
+				if (parentParameters) {
+					const host = ts.createModuleSpecifierResolutionHost(
+						provider.program,
+						provider.info.languageServiceHost,
+					);
+					for (const parameter of parentParameters) {
+						const result = convertParameter(file, parameter, host, preferences);
+						if (result) {
+							if (result.change) {
+								changes.push({
+									fileName: file.fileName,
+									textChanges: [result.change],
+								});
+							}
+							parameters.push(result.parameter);
+							superIdentifiers.push(result.name);
+						} else {
+							superIdentifiers.push(ts.factory.createIdentifier("undefined"));
+						}
+					}
+				}
+
+				if (superIdentifiers.length > 0 || getParentClass(declaration)) {
+					statements.push(
+						ts.factory.createExpressionStatement(
+							ts.factory.createCallExpression(ts.factory.createSuper(), undefined, superIdentifiers),
+						),
+					);
+				}
+
+				ctor = ts.factory.createConstructorDeclaration(
+					undefined,
+					undefined,
+					parameters,
+					ts.factory.createBlock(statements, statements.length > 0),
+				);
 			}
 
 			const newCtor = ts.factory.updateConstructorDeclaration(
@@ -115,10 +293,10 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 			);
 
 			if (ctor.flags & ts.NodeFlags.Synthesized) {
-				const { start, body } = createNewConstructorBody(declaration, newCtor, file);
+				const { start, end, body } = createNewConstructorBody(declaration, newCtor);
 				changes.push({
 					fileName: file.fileName,
-					textChanges: [ts.createTextChange(ts.createTextSpan(start, 0), body)],
+					textChanges: [ts.createTextChange(ts.createTextSpanFromBounds(start, end ?? start), body)],
 				});
 			} else {
 				changes.push({
@@ -131,6 +309,53 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 					],
 				});
 			}
+		} else {
+			// This class isn't using a Flamework decorator, so it should use the Dependency<T> macro.
+			const addImportChange = getImportChange(file, "Dependency", "@flamework/core");
+			if (addImportChange) {
+				changes.push({
+					fileName: file.fileName,
+					textChanges: [addImportChange],
+				});
+			}
+
+			// Attempts to group dependencies next to properties of the same visibility.
+			let start: number | undefined;
+			for (const member of declaration.members) {
+				if (
+					ts.isPropertyDeclaration(member) &&
+					ts.hasSyntacticModifier(member, ts.modifierToFlag(modifiers[0].kind))
+				) {
+					start = member.getStart();
+					break;
+				}
+			}
+
+			if (start === undefined) {
+				start = declaration.members.find((member) => !ts.hasStaticModifier(member))?.getStart();
+			}
+
+			const newProperty = ts.factory.createPropertyDeclaration(
+				undefined,
+				modifiers,
+				provider.convertCase(entry),
+				undefined,
+				undefined,
+				ts.factory.createCallExpression(
+					ts.factory.createIdentifier("Dependency"),
+					[ts.factory.createTypeReferenceNode(entry)],
+					undefined,
+				),
+			);
+			changes.push({
+				fileName: file.fileName,
+				textChanges: [
+					{
+						span: ts.createTextSpan(start ?? declaration.members.pos, 0),
+						newText: `${start ? "" : "\n\t"}${provider.print(newProperty, file)}${start ? "\n\t" : ""}`,
+					},
+				],
+			});
 		}
 
 		return {
@@ -144,11 +369,16 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 		const sourceFile = provider.program.getSourceFile(file);
 		if (sourceFile && result && source !== ts.Completions.CompletionSource.ThisProperty) {
 			const token = ts.findPrecedingToken(pos, sourceFile);
-			if (token !== undefined && ts.isIdentifier(token) && ts.isExpressionStatement(token.parent)) {
+			if (
+				token !== undefined &&
+				ts.isIdentifier(token) &&
+				ts.isInExpressionContext(token) &&
+				!isStaticLocation(token)
+			) {
 				const declaration = ts.findAncestor(token, ts.isClassDeclaration);
 				if (declaration && isInjectable(provider, token, entry, data)) {
 					result.codeActions ??= [];
-					result.codeActions.push(createChange(sourceFile, entry, declaration));
+					result.codeActions.push(createChange(sourceFile, entry, declaration, preferences ?? {}));
 				}
 			}
 		}

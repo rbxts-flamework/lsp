@@ -5,6 +5,7 @@ export interface Config {
 	casing?: "camelCase" | "PascalCase" | "snake_case";
 	injectableIdentifiers?: string[];
 	accessibility?: Accessibility | `${Accessibility}-readonly`;
+	alwaysUsePropertyDI?: boolean;
 	constructorOrder?: "top" | "preFields" | "preMethods";
 	constructorPadding?: "before" | "after" | "both";
 }

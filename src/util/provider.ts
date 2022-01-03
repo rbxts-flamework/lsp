@@ -7,6 +7,8 @@ import { isPathDescendantOf } from "./functions/isPathDescendantOf";
 import jsConvert from "js-convert-case";
 
 export class Provider {
+	static ts: typeof ts;
+
 	public constants = createConstants(this.info);
 	public harness?: Harness;
 	public ts: typeof ts;
@@ -17,6 +19,7 @@ export class Provider {
 	public logger = this.projectService.logger;
 	public srcDir = this.constants.srcDir;
 	public modulesDir: string;
+	public printer: ts.Printer;
 
 	constructor(
 		public serviceProxy: ts.LanguageService,
@@ -24,7 +27,9 @@ export class Provider {
 		public info: PluginCreateInfo,
 		tsImpl: typeof ts,
 	) {
+		Provider.ts = tsImpl;
 		this.ts = tsImpl;
+		this.printer = tsImpl.createPrinter();
 
 		const pkgJsonPath = tsImpl.findPackageJson(this.currentDirectory, info.languageServiceHost);
 		this.modulesDir = path.join(pkgJsonPath ? path.dirname(pkgJsonPath) : this.currentDirectory, `node_modules`);
@@ -36,6 +41,32 @@ export class Provider {
 
 	get typeChecker() {
 		return this.program.getTypeChecker();
+	}
+
+	/**
+	 * Retrieves the symbol of a node
+	 */
+	getSymbol(node: ts.Node, followAlias = true) {
+		if (this.ts.isCallExpression(node)) {
+			node = node.expression;
+		} else if (this.ts.isTypeReferenceNode(node)) {
+			node = node.typeName;
+		}
+
+		const symbol = this.typeChecker.getSymbolAtLocation(node);
+		return symbol && followAlias ? this.ts.skipAlias(symbol, this.typeChecker) : symbol;
+	}
+
+	/**
+	 * Print a node.
+	 */
+	print(node: ts.SourceFile): string;
+	print(node: ts.Node, file: ts.SourceFile): string;
+	print(node: ts.Node, file = node.getSourceFile()) {
+		const output = this.ts.isSourceFile(node)
+			? this.printer.printFile(node)
+			: this.printer.printNode(this.ts.EmitHint.Unspecified, node, file);
+		return output.replace(/    /g, "\t");
 	}
 
 	/**

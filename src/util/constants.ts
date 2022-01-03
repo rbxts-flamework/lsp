@@ -1,8 +1,9 @@
+import type ts from "typescript";
 import { PluginCreateInfo } from "../types";
 
 export function createConstants(info: PluginCreateInfo) {
 	const currentDirectory = info.languageServiceHost.getCurrentDirectory();
-	const compilerOptions = info.project.getCompilerOptions();
+	const compilerOptions = info.project.getCompilerOptions() as ts.CompilerOptions;
 	const formatOptions = info.project.projectService.getHostFormatCodeOptions();
 	const userPreferences = info.project.projectService.getHostPreferences();
 	const config = info.config;
