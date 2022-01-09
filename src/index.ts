@@ -13,6 +13,7 @@ import { getCompletionsAtPositionFactory } from "./languageService/getCompletion
 import { getCompletionEntryDetailsFactory } from "./languageService/getCompletionEntryDetails";
 import { isFlameworkProject } from "./util/functions/isFlameworkProject";
 import { getQuickInfoAtPositionFactory } from "./languageService/getQuickInfoAtPosition";
+import { getSemanticDiagnosticsFactory } from "./languageService/getSemanticDiagnosticsFactory";
 
 export = function init(modules: { typescript: typeof ts }) {
 	const ts = modules.typescript;
@@ -31,6 +32,7 @@ export = function init(modules: { typescript: typeof ts }) {
 		serviceProxy["getCompletionsAtPosition"] = getCompletionsAtPositionFactory(provider);
 		serviceProxy["getCompletionEntryDetails"] = getCompletionEntryDetailsFactory(provider);
 		serviceProxy["getQuickInfoAtPosition"] = getQuickInfoAtPositionFactory(provider);
+		serviceProxy["getSemanticDiagnostics"] = getSemanticDiagnosticsFactory(provider);
 
 		// If flamework-lsp fails, this code will fallback to the original method.
 		// If this isn't a Flamework project, this code will fallback to the original method.
