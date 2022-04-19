@@ -39,8 +39,8 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 			if (previousMember) {
 				return {
 					start: previousMember ? previousMember.getEnd() : declaration.members.pos,
-					end: nextMember.getStart(),
-					body: `\n${startNewLine}\t${ctorBody}\n${endNewLine}\t`,
+					end: nextMember.getFullStart(),
+					body: `\n${startNewLine}\t${ctorBody}`,
 				};
 			}
 		}
@@ -320,19 +320,27 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 			}
 
 			// Attempts to group dependencies next to properties of the same visibility.
+			let newlineEnd = false;
 			let start: number | undefined;
 			for (const member of declaration.members) {
 				if (
 					ts.isPropertyDeclaration(member) &&
 					ts.hasSyntacticModifier(member, ts.modifierToFlag(modifiers[0].kind))
 				) {
-					start = member.getStart();
+					const ranges = ts.getLeadingCommentRangesOfNode(member, member.getSourceFile());
+					newlineEnd = ranges ? ranges.length > 0 : false;
+					start = member.getEnd() - member.getFullText().trimStart().length;
 					break;
 				}
 			}
 
 			if (start === undefined) {
-				start = declaration.members.find((member) => !ts.hasStaticModifier(member))?.getStart();
+				const member = declaration.members.find((member) => !ts.hasStaticModifier(member));
+				if (member) {
+					const ranges = ts.getLeadingCommentRangesOfNode(member, member.getSourceFile());
+					newlineEnd = ranges ? ranges.length > 0 : false;
+					start = member.getEnd() - member?.getFullText().trimStart().length;
+				}
 			}
 
 			const newProperty = ts.factory.createPropertyDeclaration(
@@ -352,7 +360,9 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 				textChanges: [
 					{
 						span: ts.createTextSpan(start ?? declaration.members.pos, 0),
-						newText: `${start ? "" : "\n\t"}${provider.print(newProperty, file)}${start ? "\n\t" : ""}`,
+						newText: `${start ? "" : "\n\t"}${provider.print(newProperty, file)}${
+							start ? (newlineEnd ? "\n\n\t" : "\n\t") : ""
+						}`,
 					},
 				],
 			});
