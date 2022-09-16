@@ -1,6 +1,6 @@
 {
 	"name": "flamework-lsp",
-	"version": "0.0.6",
+	"version": "0.0.8",
 	"description": "A Language Service plugin to improve the editing experience of Flamework.",
 	"main": "index.js",
 	"author": "Fireboltofdeath <fireboltofpublic@gmail.com> (https://github.com/Fireboltofdeath)",
