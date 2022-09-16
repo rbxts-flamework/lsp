@@ -1,5 +1,6 @@
 import assert from "assert";
 import type ts from "typescript";
+import { getDecorators } from "../util/functions/getDecorators";
 import { createDiagnosticAtLocation } from "../util/functions/createDiagnosticAtLocation";
 import { Provider } from "../util/provider";
 
@@ -62,8 +63,9 @@ export function getSemanticDiagnosticsFactory(provider: Provider): ts.LanguageSe
 			}
 		}
 
-		if (node.decorators) {
-			for (const decorator of node.decorators) {
+		const decorators = getDecorators(node);
+		if (decorators) {
+			for (const decorator of decorators) {
 				const expression = decorator.expression;
 				const symbol = provider.getSymbol(ts.isCallExpression(expression) ? expression.expression : expression);
 				if (!symbol || !symbol.declarations) continue;

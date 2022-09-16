@@ -3,6 +3,7 @@ import { isStaticLocation } from "../util/functions/isStaticLocation";
 import { isInjectable } from "../util/functions/isInjectable";
 import { Provider } from "../util/provider";
 import { expect } from "../util/functions/expect";
+import { getDecorators } from "../util/functions/getDecorators";
 
 export function getCompletionEntryDetailsFactory(provider: Provider): ts.LanguageService["getCompletionEntryDetails"] {
 	const { service, ts } = provider;
@@ -129,8 +130,9 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 	}
 
 	function isFlameworkDecorated(declaration: ts.ClassDeclaration) {
-		if (declaration.decorators) {
-			for (const decorator of declaration.decorators) {
+		const decorators = getDecorators(declaration);
+		if (decorators) {
+			for (const decorator of decorators) {
 				const type = provider.typeChecker.getTypeAtLocation(decorator.expression);
 				if (type && type.getProperty("_flamework_Decorator") !== undefined) {
 					return true;

@@ -1,5 +1,6 @@
 import type ts from "typescript";
-import { Provider } from "util/provider";
+import { Provider } from "../../util/provider";
+import { getDecorators } from "./getDecorators";
 
 const INJECTABLE_IDENTIFIERS = new Set(["Service", "Controller"]);
 
@@ -9,8 +10,9 @@ const INJECTABLE_IDENTIFIERS = new Set(["Service", "Controller"]);
 export function isInjectable(provider: Provider, token: ts.Node, name: string, data?: ts.CompletionEntryData) {
 	const { ts } = provider;
 	const symbol = findSymbol(provider, token, name, data);
-	if (symbol?.valueDeclaration?.decorators) {
-		for (const decorator of symbol.valueDeclaration.decorators) {
+	const decorators = getDecorators(symbol?.valueDeclaration);
+	if (decorators) {
+		for (const decorator of decorators) {
 			// TODO: use symbols
 			if (ts.isCallExpression(decorator.expression) && ts.isIdentifier(decorator.expression.expression)) {
 				const identifier = decorator.expression.expression;

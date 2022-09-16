@@ -1,5 +1,5 @@
 import type ts from "typescript";
-import { Provider } from "util/provider";
+import { Provider } from "../util/provider";
 
 export function getQuickInfoAtPositionFactory(provider: Provider): ts.LanguageService["getQuickInfoAtPosition"] {
 	const { service } = provider;
