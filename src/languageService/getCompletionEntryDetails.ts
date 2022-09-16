@@ -130,7 +130,7 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 	}
 
 	function isFlameworkDecorated(declaration: ts.ClassDeclaration) {
-		const decorators = getDecorators(declaration);
+		const decorators = getDecorators(provider, declaration);
 		if (decorators) {
 			for (const decorator of decorators) {
 				const type = provider.typeChecker.getTypeAtLocation(decorator.expression);

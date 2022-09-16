@@ -63,7 +63,7 @@ export function getSemanticDiagnosticsFactory(provider: Provider): ts.LanguageSe
 			}
 		}
 
-		const decorators = getDecorators(node);
+		const decorators = getDecorators(provider, node);
 		if (decorators) {
 			for (const decorator of decorators) {
 				const expression = decorator.expression;

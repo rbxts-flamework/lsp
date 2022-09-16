@@ -10,7 +10,7 @@ const INJECTABLE_IDENTIFIERS = new Set(["Service", "Controller"]);
 export function isInjectable(provider: Provider, token: ts.Node, name: string, data?: ts.CompletionEntryData) {
 	const { ts } = provider;
 	const symbol = findSymbol(provider, token, name, data);
-	const decorators = getDecorators(symbol?.valueDeclaration);
+	const decorators = getDecorators(provider, symbol?.valueDeclaration);
 	if (decorators) {
 		for (const decorator of decorators) {
 			// TODO: use symbols
