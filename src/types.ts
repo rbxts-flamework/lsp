@@ -4,6 +4,7 @@ type Accessibility = "public" | "private" | "protected";
 export interface Config {
 	casing?: "camelCase" | "PascalCase" | "snake_case";
 	injectableIdentifiers?: string[];
+	smarterIntellisense?: boolean;
 	accessibility?: Accessibility | `${Accessibility}-readonly`;
 	alwaysUsePropertyDI?: boolean;
 	constructorOrder?: "top" | "preFields" | "preMethods";

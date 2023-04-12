@@ -1,6 +1,6 @@
 import type ts from "typescript";
 import { isStaticLocation } from "../util/functions/isStaticLocation";
-import { isInjectable } from "../util/functions/isInjectable";
+import { isInjectable, isInjector } from "../util/functions/isInjectable";
 import { Provider } from "../util/provider";
 import { expect } from "../util/functions/expect";
 import { getDecorators } from "../util/functions/getDecorators";
@@ -81,7 +81,6 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 
 				const newImport = ts.factory.updateImportDeclaration(
 					statement,
-					statement.decorators,
 					statement.modifiers,
 					ts.factory.updateImportClause(
 						clause,
@@ -113,7 +112,6 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 
 		const newImport = ts.factory.createImportDeclaration(
 			undefined,
-			undefined,
 			ts.factory.createImportClause(
 				false,
 				undefined,
@@ -127,27 +125,6 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 			span: ts.createTextSpan(newImportPosition, 0),
 			newText: "\n" + provider.print(newImport, file),
 		};
-	}
-
-	function isFlameworkDecorated(declaration: ts.ClassDeclaration) {
-		const decorators = getDecorators(provider, declaration);
-		if (decorators) {
-			for (const decorator of decorators) {
-				const type = provider.typeChecker.getTypeAtLocation(decorator.expression);
-				if (type && type.getProperty("_flamework_Decorator") !== undefined) {
-					return true;
-				}
-
-				// Pre-modding release does not have _flamework_Decorator, temporary workaround.
-				if (ts.isCallExpression(decorator.expression)) {
-					const symbol = provider.getSymbol(decorator.expression.expression);
-					if (symbol?.name === "Service" || symbol?.name === "Controller" || symbol?.name === "Component") {
-						return true;
-					}
-				}
-			}
-		}
-		return false;
 	}
 
 	function getParentClass(declaration: ts.ClassDeclaration) {
@@ -206,7 +183,6 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 						parameter,
 						undefined,
 						undefined,
-						undefined,
 						parameter.name,
 						parameter.questionToken,
 						parameter.type,
@@ -230,7 +206,7 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 			modifiers.push(tokens[token as keyof typeof tokens]);
 		}
 
-		if (isFlameworkDecorated(declaration) && !provider.config.alwaysUsePropertyDI) {
+		if (isInjector(provider, declaration) && !provider.config.alwaysUsePropertyDI) {
 			// This class is using a Flamework decorator, so it probably has constructor DI.
 			let ctor = declaration.members.find(ts.isConstructorDeclaration);
 			if (!ctor) {
@@ -270,7 +246,6 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 
 				ctor = ts.factory.createConstructorDeclaration(
 					undefined,
-					undefined,
 					parameters,
 					ts.factory.createBlock(statements, statements.length > 0),
 				);
@@ -278,12 +253,10 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 
 			const newCtor = ts.factory.updateConstructorDeclaration(
 				ctor,
-				ctor.decorators,
 				ctor.modifiers,
 				[
 					...ctor.parameters,
 					ts.factory.createParameterDeclaration(
-						undefined,
 						modifiers,
 						undefined,
 						provider.convertCase(entry),
@@ -388,9 +361,18 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 				!isStaticLocation(token)
 			) {
 				const declaration = ts.findAncestor(token, ts.isClassDeclaration);
-				if (declaration && isInjectable(provider, token, entry, data)) {
+				if (declaration && isInjector(provider, declaration) && isInjectable(provider, entry, token, data)) {
+					const change = createChange(sourceFile, entry, declaration, preferences ?? {});
 					result.codeActions ??= [];
-					result.codeActions.push(createChange(sourceFile, entry, declaration, preferences ?? {}));
+
+					// You have to manually select a code action if there are multiple,
+					// and you can no longer apply *all* actions so we'll merge them together.
+					if (result.codeActions[0]) {
+						result.codeActions[0].description = `Import as a dependency and use in dependency injection.`;
+						result.codeActions[0].changes.push(...change.changes);
+					} else {
+						result.codeActions.push(change);
+					}
 				}
 			}
 		}

@@ -1,48 +1,35 @@
 import type ts from "typescript";
 import { Provider } from "../../util/provider";
-import { getDecorators } from "./getDecorators";
-
-const INJECTABLE_IDENTIFIERS = new Set(["Service", "Controller"]);
+import { NodeMetadata } from "../nodeMetadata";
 
 /**
- * Checks whether the CompletionEntry is a Service or Controller.
+ * Checks whether the CompletionEntry can be injected into other classes.
  */
-export function isInjectable(provider: Provider, token: ts.Node, name: string, data?: ts.CompletionEntryData) {
-	const { ts } = provider;
-	const symbol = findSymbol(provider, token, name, data);
-	const decorators = getDecorators(provider, symbol?.valueDeclaration);
-	if (decorators) {
-		for (const decorator of decorators) {
-			// TODO: use symbols
-			if (ts.isCallExpression(decorator.expression) && ts.isIdentifier(decorator.expression.expression)) {
-				const identifier = decorator.expression.expression;
-				if (INJECTABLE_IDENTIFIERS.has(identifier.text)) {
-					return true;
-				}
-
-				if (provider.config.injectableIdentifiers?.includes(identifier.text)) {
-					return true;
-				}
-			}
-		}
-	}
-
-	const symbolFile = symbol?.valueDeclaration?.getSourceFile();
-	if (symbolFile && symbol) {
-		// TODO: parse flamework.build instead of hardcoding
-		if (provider.isFileInModule(symbolFile, "@flamework/components")) {
-			return symbol.name === "Components";
-		}
+export function isInjectable(provider: Provider, name: string, token?: ts.Node, data?: ts.CompletionEntryData) {
+	const symbol = findSymbol(provider, name, token, data);
+	if (symbol && symbol.valueDeclaration) {
+		const metadata = new NodeMetadata(provider, symbol.valueDeclaration);
+		return metadata.isRequested("injectable");
 	}
 
 	return false;
 }
 
-function findSymbol(provider: Provider, token: ts.Node, name: string, data?: ts.CompletionEntryData) {
+/**
+ * Checks whether the class declaration can inject other classes via the constructor.
+ */
+export function isInjector(provider: Provider, declaration: ts.ClassDeclaration) {
+	const metadata = new NodeMetadata(provider, declaration);
+	return metadata.isRequested("injector") || metadata.isRequested("injectable");
+}
+
+function findSymbol(provider: Provider, name: string, token?: ts.Node, data?: ts.CompletionEntryData) {
 	const { ts } = provider;
 
 	if (data && data.fileName) {
-		const file = provider.getSourceFile(data.fileName);
+		const file = provider.program.getSourceFile(data.fileName);
+		if (!file) return;
+
 		const fileSymbol = provider.getSymbol(file);
 		if (fileSymbol) {
 			const exportSymbol = fileSymbol.exports?.get(ts.escapeLeadingUnderscores(data.exportName));
