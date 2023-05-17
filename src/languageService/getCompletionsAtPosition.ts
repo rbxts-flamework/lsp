@@ -2,6 +2,7 @@ import type ts from "typescript";
 import { isStaticLocation } from "../util/functions/isStaticLocation";
 import { isInjectable, isInjector } from "../util/functions/isInjectable";
 import { Provider } from "../util/provider";
+import { attachSymbol } from "../util/constants";
 
 /**
  * Create the getCompletionsAtPosition method.
@@ -43,6 +44,10 @@ export function getCompletionsAtPositionFactory(provider: Provider): ts.Language
 	return (file, pos, opt) => {
 		const orig = service.getCompletionsAtPosition(file, pos, opt);
 		const sourceFile = provider.program.getSourceFile(file);
+		if (!attachSymbol(orig)) {
+			return orig;
+		}
+
 		if (orig && sourceFile) {
 			const token = ts.findPrecedingToken(pos, sourceFile);
 			const declaration = ts.findAncestor(token, ts.isClassDeclaration);

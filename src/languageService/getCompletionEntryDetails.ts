@@ -3,7 +3,7 @@ import { isStaticLocation } from "../util/functions/isStaticLocation";
 import { isInjectable, isInjector } from "../util/functions/isInjectable";
 import { Provider } from "../util/provider";
 import { expect } from "../util/functions/expect";
-import { getDecorators } from "../util/functions/getDecorators";
+import { attachSymbol } from "../util/constants";
 
 export function getCompletionEntryDetailsFactory(provider: Provider): ts.LanguageService["getCompletionEntryDetails"] {
 	const { service, ts } = provider;
@@ -352,6 +352,10 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 	return (file, pos, entry, formatOptions, source, preferences, data) => {
 		const result = service.getCompletionEntryDetails(file, pos, entry, formatOptions, source, preferences, data);
 		const sourceFile = provider.program.getSourceFile(file);
+		if (!attachSymbol(result)) {
+			return result;
+		}
+
 		if (sourceFile && result && source !== ts.Completions.CompletionSource.ThisProperty) {
 			const token = ts.findPrecedingToken(pos, sourceFile);
 			if (

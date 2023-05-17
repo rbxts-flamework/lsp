@@ -3,6 +3,7 @@ import type ts from "typescript";
 import { getDecorators } from "../util/functions/getDecorators";
 import { createDiagnosticAtLocation } from "../util/functions/createDiagnosticAtLocation";
 import { Provider } from "../util/provider";
+import { attachSymbol } from "../util/constants";
 
 export function getSemanticDiagnosticsFactory(provider: Provider): ts.LanguageService["getSemanticDiagnostics"] {
 	const { service, ts } = provider;
@@ -111,6 +112,9 @@ export function getSemanticDiagnosticsFactory(provider: Provider): ts.LanguageSe
 	return (file) => {
 		const diagnostics = service.getSemanticDiagnostics(file);
 		const sourceFile = provider.getSourceFile(file);
+		if (!attachSymbol(diagnostics)) {
+			return diagnostics;
+		}
 
 		function visitor(node: ts.Node) {
 			if (!ts.isClassDeclaration(node)) return;
