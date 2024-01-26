@@ -15,6 +15,8 @@ import { isFlameworkProject } from "./util/functions/isFlameworkProject";
 import { getQuickInfoAtPositionFactory } from "./languageService/getQuickInfoAtPosition";
 import { getSemanticDiagnosticsFactory } from "./languageService/getSemanticDiagnosticsFactory";
 
+const FLAMEWORK_MARKER = "_flamework_marker_service";
+
 export = function init(modules: { typescript: typeof ts }) {
 	const ts = modules.typescript;
 	let provider: Provider;
@@ -23,6 +25,11 @@ export = function init(modules: { typescript: typeof ts }) {
 		if (!isFlameworkProject(ts, info)) {
 			// This project does not depend on @flamework/core, so skip instantiation.
 			console.log("Flamework language extensions has skipped loading in non-rbxts project.");
+			return service;
+		}
+
+		if (FLAMEWORK_MARKER in service) {
+			console.log("TypeScript attempted to double inject flamework-lsp");
 			return service;
 		}
 
@@ -55,6 +62,7 @@ export = function init(modules: { typescript: typeof ts }) {
 
 		// Add any unimplemented default methods.
 		serviceProxy.addProxyMethods();
+		serviceProxy[FLAMEWORK_MARKER as never] = (() => void 0) as never;
 
 		provider.log("Flamework language extensions has loaded.");
 		return serviceProxy;
