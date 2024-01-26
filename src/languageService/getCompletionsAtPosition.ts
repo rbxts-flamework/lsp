@@ -58,7 +58,8 @@ export function getCompletionsAtPositionFactory(provider: Provider): ts.Language
 				ts.isIdentifier(token) &&
 				ts.isInExpressionContext(token) &&
 				!isStaticLocation(token) &&
-				isInjector(provider, declaration)
+				isInjector(provider, declaration) &&
+				!ts.isPossiblyTypeArgumentPosition(token, sourceFile, provider.typeChecker)
 			) {
 				const entries = new Array<ts.CompletionEntry>();
 				orig.entries.forEach((entry) => {

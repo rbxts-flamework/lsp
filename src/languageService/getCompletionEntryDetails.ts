@@ -362,7 +362,8 @@ export function getCompletionEntryDetailsFactory(provider: Provider): ts.Languag
 				token !== undefined &&
 				ts.isIdentifier(token) &&
 				ts.isInExpressionContext(token) &&
-				!isStaticLocation(token)
+				!isStaticLocation(token) &&
+				!ts.isPossiblyTypeArgumentPosition(token, sourceFile, provider.typeChecker)
 			) {
 				const declaration = ts.findAncestor(token, ts.isClassDeclaration);
 				if (declaration && isInjector(provider, declaration) && isInjectable(provider, entry, token, data)) {
